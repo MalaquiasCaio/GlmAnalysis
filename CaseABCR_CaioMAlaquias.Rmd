@@ -1,0 +1,94 @@
+---
+title: "Análise do Índice ABCR"
+author: "Caio Malaquias"
+date: "12/09/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Apresentação do Case
+
+O Índice ABCR é um indicador calculado com base no fluxo de veículos leves que passam pelas praças pedagiadas no Brasil.
+Tentaremos entender o comportamento da série temporal Índice ABCR e realizaremos projeções até o final de 2030.
+
+## Carregando pacotes e lendo os dados
+
+```{r}
+pacotes = c("dplyr", "ggplot2", "tidyr", "car", "readxl", 'hnp', 'MASS', 'knitr')
+
+for (pacote in pacotes) {
+  if (!requireNamespace(pacote, quietly = TRUE)) {
+    install.packages(pacote)
+    library(pacote, character.only = TRUE)
+  }
+}
+library(hnp)
+library(knitr)
+library(readxl)
+dataset <- read_excel("dataset_processo_seletivo.xlsx")
+head(dataset)
+```
+
+## Separando os dados em grupos para ajuste do modelo e predição
+
+```{r}
+dadosModelo =  dataset[complete.cases(dataset), ]
+
+dadosPredict =  dataset[rowSums(is.na(dataset)) > 0, ]
+```
+
+## Análise exploratória dos dados para o Modelo
+```{r}
+summary(dadosModelo$abcr_leves)
+histograma = hist(dadosModelo$abcr_leves); 
+testenorm = shapiro.test(dadosModelo$abcr_leves) ;testenorm
+```
+Com base no histograma e no teste de Shapiro Wilk (p-valor < 0.001) rejeitamos a hipótese de normalidade dos dados. Logo vamos executar um modelo de regrssão generalizado, mais específicamente um modelo de regressão Gamma.
+
+## Ajuste do Modelo
+
+```{r}
+modeloGamma = glm(formula = abcr_leves ~ . , family = Gamma(link = "log"), data = dadosModelo)
+resumo1 = summary(modeloGamma)
+tabela_resumo1 = kable(resumo1$coefficients); tabela_resumo1
+```
+Verificamos que a data e o preço do Diesel não são significativos (p-valor < 0.05) para explicar o Indice ABCR, logo vamos removê-los do modelo.
+
+## Modelo sem diesel e data
+```{r}
+modeloGamma2 = glm(formula = abcr_leves ~ ici + pim + receita + ic_br_energia + preco_etanol + reservas_internacionais + pmc_moveis_linha_branca + pmc_combustiveis_lubrificantes + pmc_roupa_calcados + pmc_alimentos_bebidas + selic_meta + pim_bens_consumo + pim_manufatura + pim_bens_intermediarios + pim_bens_capital , family = Gamma(link = "log"), data = dadosModelo)
+resumo2 = summary(modeloGamma2)
+tabela_resumo2 = kable(resumo2$coefficients); tabela_resumo2
+```
+Podemos observar, de acordo com este modelo, que para cada aumento de uma unidade no ici o ABCR aumenta em 1.005133 (exponencial de 0,0051) e quando o pim aumenta uma unidade o ABCR cresce em 0.9394689 (exponencial de -0,062). 
+
+Contudo, vamos verificar se este modelo é adequado:
+
+## Verificando o fit do modelo 2
+```{r}
+#deviance
+modeloGamma2$deviance
+
+#Envelope
+hnp(modeloGamma2, xlab = 'Percentil da N(0,1)', ylab = 'Resíduos', main = '', cex.axis = 0.7, cex.lab = 0.7); 
+
+```
+
+Com a deviance baixa e analisando o gráfico de envelope podemos concluir que o modelo esta bem ajustado. Então vamos prever os valores do indice ABCR até o final de 2030...
+
+# PREVENDO OS VALORES 
+```{r}
+previsoes_prob <- predict(modeloGamma2, newdata = dadosPredict, type = "response")
+
+
+# Exibir as previsões
+tabela_Previsao = data.frame( 
+  Data = c(dadosPredict$data), ABCR_leves = c(previsoes_prob)); tabela_Previsao
+plot(tabela_Previsao)
+summary(tabela_Previsao$ABCR_leves)
+```
+## Conclusão
+De modo geral, percebemos que haverá um aumento do índice ABCR nos próximos anos, mas mantendo grande oscilação e variabilidade dentro de um mesmo ano.
